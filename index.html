@@ -1,126 +1,102 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
+  <style type="text/css">
+    html { height: 100%; }
+    body { height: 100%; margin: 0; background: #111; text-align: center; }
+    #remoteVideo { height: 70%; margin-top: 5%; background: #000; }
+    #localVideo { width: 20%; position: absolute; right: 1.1em; bottom: 1em; border: 1px solid #333; background: #000; }
+    #callButton { position: absolute; display: none; left: 50%; font-size: 2em; bottom: 5%; border-radius: 1em; }
+  </style>
 </head>
+<script src="/socket.io/socket.io.js"></script>
 
-<body>
+<video id="localVideo" autoplay muted></video>
+<video id="remoteVideo" autoplay></video>
+<button id="callButton" onclick="createOffer()">✆</button>
 
-  <div id="container">
-    <video id="local" autoplay></video>
-
-    <video id="remote" autoplay></video>
-
-    <button id="call">call</button>
-  </div>
-
-	<script src="/socket.io/socket.io.js"></script>
-
-  <script>
-  	var socket = io.connect();
-
-  	var myPeerConnection;
-  	var remotePeerConnection;
-  	var offer;
-
-  	var PeerConnectionWindow = (window.RTCPeerConnection || window.mozRTCPeerConnection 
-  	|| window.webkitRTCPeerConnection || window.msRTCPeerConnection);
-  	var SessionDescription = (window.RTCSessionDescription || window.mozRTCSessionDescription 
-  	|| window.webkitRTCSessionDescription || window.msRTCSessionDescription);
+<script>
+var pc; // PeerConnection
 
 
-  	    function hasUserMedia() { 
-  	   //check if the browser supports the WebRTC 
-  	   return !!(navigator.getUserMedia || navigator.webkitGetUserMedia || 
-  	      navigator.mozGetUserMedia || navigator.msGetUserMedia); 
-  	}
+// Step 1. getUserMedia
+navigator.mediaDevices.getUserMedia({ 
+	video: true 
+})
+.then(gotStream)
+.catch(function(error) { console.log(error) });
+
+function gotStream(stream) {
+  document.getElementById("callButton").style.display = 'inline-block';
+  document.getElementById("localVideo").srcObject = stream;
+
+  pc = new RTCPeerConnection(null);
+  pc.addStream(stream);
+  pc.onicecandidate = gotIceCandidate;
+  pc.ontrack = gotRemoteStream;
+}
 
 
+// Step 2. createOffer
+function createOffer() {
+	pc.createOffer({ 'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true })
+		.then(gotLocalDescription)
+		.catch(function(error) { console.log(error) })
+}
 
 
-  	if (hasUserMedia()) {
+// Step 3. createAnswer
+function createAnswer() {
+	pc.createAnswer({ 'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true })
+		.then(gotLocalDescription)
+		.catch(function(error) { console.log(error) })
+}
 
-  	   var configuration = { 
-  	      "iceServers": [{ "url": "stun:stun.1.google.com:19302" }] 
-  	   }; 
 
-  	   myPeerConnection = new PeerConnectionWindow(configuration);
-  	   console.log(myPeerConnection);
+function gotLocalDescription(description){
+  pc.setLocalDescription(description);
+  sendMessage(description);
+}
 
-  	   remotePeerConnection = new PeerConnectionWindow(configuration);
-  	   console.log(remotePeerConnection);
+function gotIceCandidate(event){
+  if (event.candidate) {
+    sendMessage({
+      type: 'candidate',
+      label: event.candidate.sdpMLineIndex,
+      id: event.candidate.sdpMid,
+      candidate: event.candidate.candidate
+    });
+  }
+}
 
-  	   myPeerConnection.createOffer(gotDescription, onError);
+function gotRemoteStream(event){
+  document.getElementById("remoteVideo").srcObject = event.stream;
+}
 
-  	   myPeerConnection.onicecandidate = function(evt){
-  	      if(event.candidate){
-  	         socket.emit('ice', JSON.stringify({'ice': evt.candidate}));
-  	         remotePeerConnection.addIceCandidate(evt.candidate);
-  	         console.log("connected my to remote");
-  	      }
-  	   };
 
-  	   remotePeerConnection.onicecandidate = function(evt){
-  	      if(event.candidate){
-  	         socket.emit('ice', JSON.stringify({'ice': evt.candidate}));
-  	         myPeerConnection.addIceCandidate(evt.candidate);
-  	         console.log("connected my to remote");
-  	      }
-  	   };
+////////////////////////////////////////////////
+// Socket.io
 
-  	   remotePeerConnection.onaddstream = function (evt) {
-  	      console.log("on added stream");
-  	      var remoteVid = document.getElementById('remote'); 
+var socket = io.connect('', {port: 1234});
 
-  	      remoteVid.src = window.URL.createObjectURL(evt.stream);
-  	   }
+function sendMessage(message){
+  socket.emit('message', message);
+}
 
-  	   navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia
-  	   || navigator.mozGetUserMedia || navigator.msGetUserMedia; 
-  	   //enabling video and audio channels 
-  	   navigator.getUserMedia({ video: true, audio: true }, function (stream) {  
-  	      var video = document.getElementById('local');  
-  	      // //inserting our stream to the video tag     
-  	      video.src = window.URL.createObjectURL(stream);
-  	      myPeerConnection.addStream(stream); 
-  	   }, onError); 
-  	} else { 
-  	   alert("WebRTC is not supported"); 
-  	}
+socket.on('message', function (message){
+  if (message.type === 'offer') {
+    pc.setRemoteDescription(new RTCSessionDescription(message));
+    createAnswer();
+  } 
+  else if (message.type === 'answer') {
+    pc.setRemoteDescription(new RTCSessionDescription(message));
+  } 
+  else if (message.type === 'candidate') {
+    var candidate = new RTCIceCandidate({sdpMLineIndex: message.label, candidate: message.candidate});
+    pc.addIceCandidate(candidate);
+  }
+});
 
-  	function gotDescription(desc) {
-  	   offer = desc
-  	   myPeerConnection.setLocalDescription(offer, myPeerConnLocalDescSet, onError);
-  	   socket.emit('description', JSON.stringify({'sdp': desc}));
-  	}
-
-  	function onError(err){
-  	   console.log(err);
-  	}
-
-  	function myPeerConnLocalDescSet(){
-  	   remotePeerConnection.setRemoteDescription(offer, remotePeerConnRemoteDescSet,onError);
-  	}
-
-  	function remotePeerConnRemoteDescSet(){
-  	   remotePeerConnection.createAnswer(onAnswerCreated, onError);
-  	}
-
-  	function onAnswerCreated(description){
-  	   answer = description;
-  	   remotePeerConnection.setLocalDescription(answer, remotePeerLocalDescSet,onError);
-  	}
-
-  	function remotePeerLocalDescSet(){
-  	   myPeerConnection.setRemoteDescription(answer, myPeerRemoteDescSet,onError);
-  	}
-
-  	function myPeerRemoteDescSet(){
-  	   console.log('did we get it?');
-  	}
-
-  	
-
-  </script>
-</body>
+</script>
 </html>

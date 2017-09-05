@@ -27,13 +27,11 @@ module.exports = function (server, config) {
         client.on('join', join);
 
         function join(name, cb) {
-            console.log(name);
             client.join(name);
             client.room = name;
         }
 
         client.on('create', function (name, cb) {
-            console.log(name, cb);
             cb = name;
             name = uuid();
             join(name);
