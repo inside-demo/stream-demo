@@ -1,48 +1,36 @@
-var static = require('node-static');
-var http = require('http');
-var file = new(static.Server)();
-var app = http.createServer(function (req, res) {
-	file.serve(req, res);
-}).listen(1234);
+const app = require('express')();
+const server = require('http').createServer(app);
+const io = require('socket.io').listen(server);
 
-var io = require('socket.io').listen(app);
+server.listen(8080);
 
-io.sockets.on('connection', function (socket) {
-	function log() {
-		var array = [">>> "];
-		for(var i = 0; i < arguments.length; i++) {
-			array.push(arguments[i]);
-		}
-		console.log('log', array);
-	}
+app.get('/', function (req, res) { // При обращении к корневой странице
+  res.sendFile(__dirname + '/index.html'); // отдадим HTML-файл
+});
+io.sockets.on('connection', function (socket) {    // При подключении
+  socket.emit('server event', { hello: 'world' }); // отправим сообщение
+  socket.on('client event', function (data) {      // и объявим обработчик события при поступлении сообщения от клиента
+    console.log(data);
+  });
 
-	socket.on('message', function (message) {
-		log('Got message: ', message);
-		socket.broadcast.emit('message', message); // should be room only
-	});
-
-	socket.on('create or join', function (room) {
-		var numClients = io.sockets.clients(room).length;
-
-		log('Room ' + room + ' has ' + numClients + ' client(s)');
-		log('Request to create or join room', room);
-
-		if(numClients == 0) {
-			socket.join(room);
-			socket.emit('created', room);
-		} 
-
-		else if(numClients == 1) {
-			io.sockets.in(room).emit('join', room);
-			socket.join(room);
-			socket.emit('joined', room);
-		} 
-
-		else { // max two clients
-			socket.emit('full', room);
-		}
-
-		socket.emit('emit(): client ' + socket.id + ' joined room ' + room);
-		socket.broadcast.emit('broadcast(): client ' + socket.id + ' joined room ' + room);
-	});
+  socket.on('offer', function (data) { // При получении сообщения 'offer',
+    // так как клиентское соединение в данном примере всего одно,
+    // отправим сообщение обратно через тот же сокет
+    // socket.emit('offer', data); 
+    // Если бы было необходимо переслать сообщение по всем соединениям, 
+    // кроме отправителя:
+    socket.broadcast.emit('offer', data);
+  });
+  socket.on('answer', function (data) {
+    socket.emit('answer', data);
+  });
+  socket.on('ice1', function (data) {
+    socket.emit('ice1', data);
+  });
+  socket.on('ice2', function (data) {
+    socket.emit('ice2', data);
+  });
+  socket.on('hangup', function (data) {
+    socket.emit('hangup', data);
+  });
 });
