@@ -14,6 +14,7 @@
     <video id="remoteVideo1" autoplay=true></video>
     <video id="remoteVideo2" autoplay=true></video>
 
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script>
       var socket = io.connect('/'); // URL сервера веб-сокетов (корневая страница сервера, с которого была загружена страница)
@@ -26,10 +27,53 @@
       var pc1;
       var pc2;
       // var servers = null;
-      var offerConstraints = {};
       var servers = { "iceServers": [
-        { "url": "stun:stun.stunprotocol.org:3478" }
+        {
+          urls:'stun:172.17.0.233'
+        },
+        {
+          urls: 'turn:172.17.0.233:3478',
+          credential: 'rokker1',
+          username: 'rokker'
+        }
       ]};
+      var offerConstraints = {};
+      // var servers = { "iceServers": [
+      //   {urls:'stun:stun01.sipphone.com'},
+      //   {urls:'stun:stun.ekiga.net'},
+      //   {urls:'stun:stun.fwdnet.net'},
+      //   {urls:'stun:stun.ideasip.com'},
+      //   {urls:'stun:stun.iptel.org'},
+      //   {urls:'stun:stun.rixtelecom.se'},
+      //   {urls:'stun:stun.schlund.de'},
+      //   {urls:'stun:stun.l.google.com:19302'},
+      //   {urls:'stun:stun1.l.google.com:19302'},
+      //   {urls:'stun:stun2.l.google.com:19302'},
+      //   {urls:'stun:stun3.l.google.com:19302'},
+      //   {urls:'stun:stun4.l.google.com:19302'},
+      //   {urls:'stun:stunserver.org'},
+      //   {urls:'stun:stun.softjoys.com'},
+      //   {urls:'stun:stun.voiparound.com'},
+      //   {urls:'stun:stun.voipbuster.com'},
+      //   {urls:'stun:stun.voipstunt.com'},
+      //   {urls:'stun:stun.voxgratia.org'},
+      //   {urls:'stun:stun.xten.com'},
+      //   {
+      //     urls: 'turn:numb.viagenie.ca',
+      //     credential: 'muazkh',
+      //     username: 'webrtc@live.com'
+      //   },
+      //   {
+      //     urls: 'turn:192.158.29.39:3478?transport=udp',
+      //     credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+      //     username: '28224511:1379330808'
+      //   },
+      //   {
+      //     urls: 'turn:192.158.29.39:3478?transport=tcp',
+      //     credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
+      //     username: '28224511:1379330808'
+      //   }
+      // ]};
       var localStream = null;
       var streamConstraints = {
           // "audio": true,
@@ -49,6 +93,10 @@
         // console.log("getUserMedia_success():", stream);
         localVideo1.srcObject = stream; // Подключаем медиапоток к HTML-элементу <video>
         localStream = stream; // и сохраняем в глобальной переменной для дальнейшего использования
+        // socket.emit('join', 'test');
+        // socket.on('ready', function (data) {
+        //   console.log('ready:', data);
+        // });
       }
 
       function getUserMedia_error(error) {
@@ -66,7 +114,8 @@
 
       function pc1_createOffer_success(desc) {
         // console.log("pc1_createOffer_success(): \ndesc.sdp:\n"+desc.sdp+"desc:", desc);
-        pc1.setLocalDescription(desc);  // Зададим RTCPeerConnection, сформированный Offer SDP методом setLocalDescription. 
+        pc1.setLocalDescription(desc);  
+        // Зададим RTCPeerConnection, сформированный Offer SDP методом setLocalDescription. 
         // Когда дальняя сторона пришлет свой Answer SDP, его нужно будет задать методом setRemoteDescription 
         // Пока вторая сторона не реализована, ничего не делаем
         // pc2_receivedOffer(desc);
@@ -123,7 +172,7 @@
         pc2.ontrack = pc2_onaddstream; // При появлении потока подключим его к HTML <video>
         pc2.addStream(localStream); // Передадим локальный медиапоток (в нашем примере у второго участника он тот же, что и у первого)
         // Теперь, когда второй RTCPeerConnection готов, передадим ему полученный Offer SDP (первому мы передавали локальный поток)
-         pc2.setRemoteDescription( new RTCSessionDescription(desc) );
+         pc2.setRemoteDescription(new RTCSessionDescription(desc));
         // Запросим у второго соединения формирование данных для сообщения Answer
         pc2.createAnswer( 
           answerConstraints
@@ -160,7 +209,8 @@
 
       socket.on('answer', function (data) {
         // console.log("socket.on('answer'):", data);
-        pc1.setRemoteDescription( new RTCSessionDescription(data) );
+        console.log(pc1, data);
+        pc1.setRemoteDescription(new RTCSessionDescription(data));
       });
 
       socket.on('ice1', function (data) {

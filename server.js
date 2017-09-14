@@ -7,13 +7,25 @@ server.listen(8080);
 app.get('/', function (req, res) { // При обращении к корневой странице
   res.sendFile(__dirname + '/index.html'); // отдадим HTML-файл
 });
-io.sockets.on('connection', function (socket) {    // При подключении
-  socket.emit('server event', { hello: 'world' }); // отправим сообщение
-  socket.on('client event', function (data) {      // и объявим обработчик события при поступлении сообщения от клиента
-    console.log(data);
+io.sockets.on('connection', function (socket) {
+
+  socket.on('join', function(room){
+    var clients = io.sockets.adapter.rooms[room];
+    var numClients = clients !== undefined ? Object.keys(clients).length : 0;
+    if(numClients == 0){
+      socket.join(room);
+    }else if(numClients == 1){
+      socket.join(room);
+      socket.emit('ready', room);
+      socket.broadcast.emit('ready', room);
+    }else{
+      socket.emit('full', room);
+    }
   });
 
-  socket.on('offer', function (data) { // При получении сообщения 'offer',
+  socket.on('offer', function (data) { 
+    console.log(data);
+    // При получении сообщения 'offer',
     // так как клиентское соединение в данном примере всего одно,
     // отправим сообщение обратно через тот же сокет
     // socket.emit('offer', data); 
