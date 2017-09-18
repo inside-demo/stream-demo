@@ -1,182 +1,27 @@
 <!DOCTYPE html>
 <html>
-  <head><title>WebRTC</title>
-    <style>
-      video { height: 240px; width: 320px; border: 1px solid grey; }
-    </style>
-  </head>
-  <body>
-    <button id="btn_getUserMedia" onclick="getUserMedia_click()">getUserMedia</button>
-    <button id="btn_createOffer" onclick="createOffer_click()">createOffer</button>
-    <button id="btnHangup" onclick="btnHangupClick()">Hang Up</button>
-    <br>
-    <video id="localVideo1" autoplay="true"></video>
-    <video id="remoteVideo1" autoplay=true></video>
-    <video id="remoteVideo2" autoplay=true></video>
+    <head>
+        <script src="https://simplewebrtc.com/latest-v2.js"></script> 
+    </head>
+    <body>
+        <video height="300" id="localVideo"></video>
+        <div id="remotesVideos"></div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-      var socket = io.connect('/'); // URL сервера веб-сокетов (корневая страница сервера, с которого была загружена страница)
-      socket.on('server event', function (data) {
-        // console.log(data);
-        socket.emit('client event', { 'name': 'value' });
-      });
-    </script>
-    <script>
-      var pc1;
-      var pc2;
-      // var servers = null;
-      var offerConstraints = {};
-      var servers = { "iceServers": [
-        { urls: "stun:stun.stunprotocol.org:3478" }
-      ]};
-      var localStream = null;
-      var streamConstraints = {
-          // "audio": true,
-          "video": {
-            "mandatory": { "maxWidth": "320", "maxHeight": "240", "maxFrameRate": "5" },
-            "optional": []
-        }
-      };
-      var answerConstraints = { 
-        'mandatory': { 
-          // 'OfferToReceiveAudio':true, 
-          'OfferToReceiveVideo':true 
-        } 
-      };
+        <script>
+          var webrtc = new SimpleWebRTC({
+            // the id/element dom element that will hold "our" video
+            localVideoEl: 'localVideo',
+            // the id/element dom element that will hold remote videos
+            remoteVideosEl: 'remotesVideos',
+            // immediately ask for camera access
+            autoRequestMedia: true
+          });
 
-      function getUserMedia_success(stream) {
-        // console.log("getUserMedia_success():", stream);
-        localVideo1.srcObject = stream; // Подключаем медиапоток к HTML-элементу <video>
-        localStream = stream; // и сохраняем в глобальной переменной для дальнейшего использования
-      }
-
-      function getUserMedia_error(error) {
-        // console.log("getUserMedia_error():", error);
-      }
-
-      function getUserMedia_click() {
-        // console.log("getUserMedia_click()");
-        navigator.mediaDevices.getUserMedia(streamConstraints)
-          .then(getUserMedia_success)
-          .catch(getUserMedia_error);
-      }
-
-      /**********************************************/
-
-      function pc1_createOffer_success(desc) {
-        // console.log("pc1_createOffer_success(): \ndesc.sdp:\n"+desc.sdp+"desc:", desc);
-        pc1.setLocalDescription(desc);  // Зададим RTCPeerConnection, сформированный Offer SDP методом setLocalDescription. 
-        // Когда дальняя сторона пришлет свой Answer SDP, его нужно будет задать методом setRemoteDescription 
-        // Пока вторая сторона не реализована, ничего не делаем
-        // pc2_receivedOffer(desc);
-        socket.emit('offer', desc);
-      }
-
-      function pc1_createOffer_error(error){
-        // console.log("pc1_createOffer_success_error(): error:", error);
-      }
-
-      function pc1_onicecandidate(event){
-        if (event.candidate) {
-          // console.log("pc1_onicecandidate():\n"+ event.candidate.candidate.replace("\r\n", ""), event.candidate);
-          // Пока вторая сторона не реализована, ничего не делаем
-          // pc2.addIceCandidate(new RTCIceCandidate(event.candidate));
-          socket.emit('ice1', event.candidate);
-        }
-      }
-
-      function pc1_onaddstream(event) {
-          // console.log("pc_onaddstream()");
-          console.log("pc1_onaddstream", event.streams);
-          remoteVideo1.srcObject = event.streams[0];
-      }
-
-      function createOffer_click() {
-        // console.log("createOffer_click()");
-        pc1 = new RTCPeerConnection(servers); // Создаем RTCPeerConnection
-        pc1.onicecandidate = pc1_onicecandidate;    // Callback-функция для обработки ICE-кандидатов
-        pc1.ontrack = pc1_onaddstream;          // Callback-функция, вызываемая при появлении медиапотока от дальней стороны. Пока что его нет
-        pc1.addStream(localStream); // Передадим локальный медиапоток (предполагаем, что он уже получен)
-        pc1.createOffer(            // И собственно запрашиваем формирование Offer
-          offerConstraints
-        ).then(pc1_createOffer_success).catch(pc1_createOffer_error);
-      }
-
-      /**********************************************/
-      function pc2_createAnswer_success(desc) {  
-        pc2.setLocalDescription(desc);
-        // console.log("pc2_createAnswer_success()", desc.sdp);
-        // pc1.setRemoteDescription(desc);
-        socket.emit('answer', desc);
-      }
-
-      function pc2_createAnswer_error(error) {
-        // console.log('pc2_createAnswer_error():', error);
-      }
-
-      function pc2_receivedOffer(desc) {
-        // console.log("pc2_receiveOffer()", desc);
-        // Создаем объект RTCPeerConnection для второго участника аналогично первому
-        pc2 = new RTCPeerConnection(servers);
-        pc2.onicecandidate = pc2_onicecandidate; // Задаем обработчик события при появлении ICE-кандидата
-        pc2.ontrack = pc2_onaddstream; // При появлении потока подключим его к HTML <video>
-        pc2.addStream(localStream); // Передадим локальный медиапоток (в нашем примере у второго участника он тот же, что и у первого)
-        // Теперь, когда второй RTCPeerConnection готов, передадим ему полученный Offer SDP (первому мы передавали локальный поток)
-         pc2.setRemoteDescription( new RTCSessionDescription(desc) );
-        // Запросим у второго соединения формирование данных для сообщения Answer
-        pc2.createAnswer( 
-          answerConstraints
-        ).then(pc2_createAnswer_success).catch(pc2_createAnswer_error);
-      }
-
-      function pc2_onicecandidate(event) {
-        if (event.candidate) {
-          // console.log("pc2_onicecandidate():", event.candidate.candidate);
-          // pc1.addIceCandidate(new RTCIceCandidate(event.candidate));
-          socket.emit('ice2', event.candidate);
-        }
-      }
-
-      function pc2_onaddstream(event) {
-        // console.log("pc_onaddstream()");
-        console.log("pc2_onaddstream", event.streams);
-        remoteVideo2.srcObject = event.streams[0];
-      }
-
-      function btnHangupClick() {
-        // Отключаем локальное видео от HTML-элементов <video>, останавливаем локальный медиапоток, устанавливаем = null
-        localVideo1.srcObject = ""; localStream.stop(); localStream = null;
-        // Для каждого из участников отключаем видео от HTML-элементов <video>, закрываем соединение, устанавливаем указатель = null
-        remoteVideo1.srcObject = ""; pc1.close(); pc1 = null;
-        // remoteVideo2.srcObject = ""; pc2.close(); pc2 = null; 
-        socket.emit('hangup', {});
-      }
-
-      socket.on('offer', function (data) {
-        // console.log("socket.on('offer'):", data);
-        pc2_receivedOffer(data);
-      });
-
-      socket.on('answer', function (data) {
-        // console.log("socket.on('answer'):", data);
-        pc1.setRemoteDescription( new RTCSessionDescription(data) );
-      });
-
-      socket.on('ice1', function (data) {
-        // console.log("socket.on('ice1'):", data);
-        pc2.addIceCandidate(new RTCIceCandidate(data));
-      });
-
-      socket.on('ice2', function (data) {
-        // console.log("socket.on('ice2'):", data);
-        pc1.addIceCandidate(new RTCIceCandidate(data));
-      });
-
-      socket.on('hangup', function (data) {
-        // console.log("socket.on('hangup'):", data);
-        remoteVideo2.srcObject = ""; pc2.close(); pc2 = null; 
-      });
-    </script>
-  </body>
+          // we have to wait until it's ready
+          webrtc.on('readyToCall', function () {
+            // you can name it anything
+            webrtc.joinRoom('your awesome room name');
+          });
+        </script>
+    </body>
 </html>
