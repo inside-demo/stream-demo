@@ -1,182 +1,187 @@
 <!DOCTYPE html>
 <html>
-  <head><title>WebRTC</title>
-    <style>
-      video { height: 240px; width: 320px; border: 1px solid grey; }
-    </style>
-  </head>
-  <body>
-    <button id="btn_getUserMedia" onclick="getUserMedia_click()">getUserMedia</button>
-    <button id="btn_createOffer" onclick="createOffer_click()">createOffer</button>
-    <button id="btnHangup" onclick="btnHangupClick()">Hang Up</button>
-    <br>
-    <video id="localVideo1" autoplay="true"></video>
-    <video id="remoteVideo1" autoplay=true></video>
-    <video id="remoteVideo2" autoplay=true></video>
+    <head>
+      <meta charset="UTF-8">
+      <script src="https://socket.io-client/socket.io.js"></script>
+      <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+    </head>
+    <body>
+        <video id="localVideo" autoplay></video>
+        <div id="remotesVideos"></div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-      var socket = io.connect('/'); // URL сервера веб-сокетов (корневая страница сервера, с которого была загружена страница)
-      socket.on('server event', function (data) {
-        // console.log(data);
-        socket.emit('client event', { 'name': 'value' });
-      });
-    </script>
-    <script>
-      var pc1;
-      var pc2;
-      // var servers = null;
-      var offerConstraints = {};
-      var servers = { "iceServers": [
-        { urls: "stun:stun.stunprotocol.org:3478" }
-      ]};
-      var localStream = null;
-      var streamConstraints = {
-          // "audio": true,
-          "video": {
-            "mandatory": { "maxWidth": "320", "maxHeight": "240", "maxFrameRate": "5" },
-            "optional": []
-        }
-      };
-      var answerConstraints = { 
-        'mandatory': { 
-          // 'OfferToReceiveAudio':true, 
-          'OfferToReceiveVideo':true 
-        } 
-      };
+        <script>
+          var configuration = {
+            'iceServers': [{
+              'urls': 'stun:stun.l.google.com:19302'
+            }]
+          };
 
-      function getUserMedia_success(stream) {
-        // console.log("getUserMedia_success():", stream);
-        localVideo1.srcObject = stream; // Подключаем медиапоток к HTML-элементу <video>
-        localStream = stream; // и сохраняем в глобальной переменной для дальнейшего использования
-      }
+          // Create a random room if not already present in the URL.
+          var isInitiator;
+          var room = window.location.hash.substring(1);
+          if (!room) {
+            room = window.location.hash = randomToken();
+          }
 
-      function getUserMedia_error(error) {
-        // console.log("getUserMedia_error():", error);
-      }
+          /****************************************************************************
+          * Signaling server
+          ****************************************************************************/
 
-      function getUserMedia_click() {
-        // console.log("getUserMedia_click()");
-        navigator.mediaDevices.getUserMedia(streamConstraints)
-          .then(getUserMedia_success)
-          .catch(getUserMedia_error);
-      }
+          // Connect to the signaling server
+          var socket = io.connect();
 
-      /**********************************************/
+          socket.on('ipaddr', function(ipaddr) {
+            console.log('Server IP address is: ' + ipaddr);
+            // updateRoomURL(ipaddr);
+          });
 
-      function pc1_createOffer_success(desc) {
-        // console.log("pc1_createOffer_success(): \ndesc.sdp:\n"+desc.sdp+"desc:", desc);
-        pc1.setLocalDescription(desc);  // Зададим RTCPeerConnection, сформированный Offer SDP методом setLocalDescription. 
-        // Когда дальняя сторона пришлет свой Answer SDP, его нужно будет задать методом setRemoteDescription 
-        // Пока вторая сторона не реализована, ничего не делаем
-        // pc2_receivedOffer(desc);
-        socket.emit('offer', desc);
-      }
+          socket.on('created', function(room, clientId) {
+            console.log('Created room', room, '- my client ID is', clientId);
+            isInitiator = true;
+            grabWebCamVideo();
+          });
 
-      function pc1_createOffer_error(error){
-        // console.log("pc1_createOffer_success_error(): error:", error);
-      }
+          socket.on('joined', function(room, clientId) {
+            console.log('This peer has joined room', room, 'with client ID', clientId);
+            isInitiator = false;
+            createPeerConnection(isInitiator, configuration);
+            grabWebCamVideo();
+          });
 
-      function pc1_onicecandidate(event){
-        if (event.candidate) {
-          // console.log("pc1_onicecandidate():\n"+ event.candidate.candidate.replace("\r\n", ""), event.candidate);
-          // Пока вторая сторона не реализована, ничего не делаем
-          // pc2.addIceCandidate(new RTCIceCandidate(event.candidate));
-          socket.emit('ice1', event.candidate);
-        }
-      }
+          // socket.on('full', function(room) {
+          //   alert('Room ' + room + ' is full. We will create a new room for you.');
+          //   window.location.hash = '';
+          //   window.location.reload();
+          // });
 
-      function pc1_onaddstream(event) {
-          // console.log("pc_onaddstream()");
-          console.log("pc1_onaddstream", event.streams);
-          remoteVideo1.srcObject = event.streams[0];
-      }
+          socket.on('ready', function(room) {
+            console.log('Socket is ready ', room);
+            createPeerConnection(isInitiator, configuration);
+          });
 
-      function createOffer_click() {
-        // console.log("createOffer_click()");
-        pc1 = new RTCPeerConnection(servers); // Создаем RTCPeerConnection
-        pc1.onicecandidate = pc1_onicecandidate;    // Callback-функция для обработки ICE-кандидатов
-        pc1.ontrack = pc1_onaddstream;          // Callback-функция, вызываемая при появлении медиапотока от дальней стороны. Пока что его нет
-        pc1.addStream(localStream); // Передадим локальный медиапоток (предполагаем, что он уже получен)
-        pc1.createOffer(            // И собственно запрашиваем формирование Offer
-          offerConstraints
-        ).then(pc1_createOffer_success).catch(pc1_createOffer_error);
-      }
+          socket.on('log', function(array) {
+            console.log.apply(console, array);
+          });
 
-      /**********************************************/
-      function pc2_createAnswer_success(desc) {  
-        pc2.setLocalDescription(desc);
-        // console.log("pc2_createAnswer_success()", desc.sdp);
-        // pc1.setRemoteDescription(desc);
-        socket.emit('answer', desc);
-      }
+          socket.on('message', function(message) {
+            console.log('Client received message:', message);
+            signalingMessageCallback(message);
+          });
 
-      function pc2_createAnswer_error(error) {
-        // console.log('pc2_createAnswer_error():', error);
-      }
+          // Join a room
+          socket.emit('create or join', room);
 
-      function pc2_receivedOffer(desc) {
-        // console.log("pc2_receiveOffer()", desc);
-        // Создаем объект RTCPeerConnection для второго участника аналогично первому
-        pc2 = new RTCPeerConnection(servers);
-        pc2.onicecandidate = pc2_onicecandidate; // Задаем обработчик события при появлении ICE-кандидата
-        pc2.ontrack = pc2_onaddstream; // При появлении потока подключим его к HTML <video>
-        pc2.addStream(localStream); // Передадим локальный медиапоток (в нашем примере у второго участника он тот же, что и у первого)
-        // Теперь, когда второй RTCPeerConnection готов, передадим ему полученный Offer SDP (первому мы передавали локальный поток)
-         pc2.setRemoteDescription( new RTCSessionDescription(desc) );
-        // Запросим у второго соединения формирование данных для сообщения Answer
-        pc2.createAnswer( 
-          answerConstraints
-        ).then(pc2_createAnswer_success).catch(pc2_createAnswer_error);
-      }
+          if (location.hostname.match(/localhost|127\.0\.0/)) {
+            socket.emit('ipaddr');
+          }
 
-      function pc2_onicecandidate(event) {
-        if (event.candidate) {
-          // console.log("pc2_onicecandidate():", event.candidate.candidate);
-          // pc1.addIceCandidate(new RTCIceCandidate(event.candidate));
-          socket.emit('ice2', event.candidate);
-        }
-      }
+          /****************************************************************************
+          * User media (webcam)
+          ****************************************************************************/
 
-      function pc2_onaddstream(event) {
-        // console.log("pc_onaddstream()");
-        console.log("pc2_onaddstream", event.streams);
-        remoteVideo2.srcObject = event.streams[0];
-      }
+          function grabWebCamVideo() {
+            console.log('Getting user media (video) ...');
+            navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: true
+            })
+            .then(gotStream)
+            .catch(function(e) {
+              alert('getUserMedia() error: ' + e.name);
+            });
+          }
 
-      function btnHangupClick() {
-        // Отключаем локальное видео от HTML-элементов <video>, останавливаем локальный медиапоток, устанавливаем = null
-        localVideo1.srcObject = ""; localStream.stop(); localStream = null;
-        // Для каждого из участников отключаем видео от HTML-элементов <video>, закрываем соединение, устанавливаем указатель = null
-        remoteVideo1.srcObject = ""; pc1.close(); pc1 = null;
-        // remoteVideo2.srcObject = ""; pc2.close(); pc2 = null; 
-        socket.emit('hangup', {});
-      }
+          function gotStream(stream) {
+            console.log('getUserMedia video stream URL:', window.URL.createObjectURL(stream));
+            window.stream = stream; // stream available to console
+            document.querySelector('#localVideo').srcObject = stream;
+          }
 
-      socket.on('offer', function (data) {
-        // console.log("socket.on('offer'):", data);
-        pc2_receivedOffer(data);
-      });
+          /****************************************************************************
+          * WebRTC peer connection and data channel
+          ****************************************************************************/
 
-      socket.on('answer', function (data) {
-        // console.log("socket.on('answer'):", data);
-        pc1.setRemoteDescription( new RTCSessionDescription(data) );
-      });
+          var peerConn;
 
-      socket.on('ice1', function (data) {
-        // console.log("socket.on('ice1'):", data);
-        pc2.addIceCandidate(new RTCIceCandidate(data));
-      });
+          function signalingMessageCallback(message) {
+            if (message.type === 'offer') {
+              console.log('Got offer. Sending answer to peer.');
+              peerConn.setRemoteDescription(new RTCSessionDescription(message), function() {}, logError);
+              peerConn.createAnswer(onLocalSessionCreated, logError);
 
-      socket.on('ice2', function (data) {
-        // console.log("socket.on('ice2'):", data);
-        pc1.addIceCandidate(new RTCIceCandidate(data));
-      });
+            } 
 
-      socket.on('hangup', function (data) {
-        // console.log("socket.on('hangup'):", data);
-        remoteVideo2.srcObject = ""; pc2.close(); pc2 = null; 
-      });
-    </script>
-  </body>
+            if (message.type === 'answer') {
+              console.log('Got answer.');
+              peerConn.setRemoteDescription(new RTCSessionDescription(message), function() {}, logError);
+
+            }
+
+            if (message.type === 'candidate') {
+              peerConn.addIceCandidate(new RTCIceCandidate({
+                candidate: message.candidate
+              }));
+
+            } 
+
+            if (message === 'bye') {
+              // TODO: cleanup RTC connection?
+            }
+          }
+
+          function createPeerConnection(isInitiator, config) {
+            console.log('Creating Peer connection as initiator?', isInitiator, 'config:', config);
+            peerConn = new RTCPeerConnection(config);
+
+            // send any ice candidates to the other peer
+            peerConn.onicecandidate = function(event) {
+              console.log('icecandidate event:', event);
+              if (event.candidate) {
+                sendMessage({
+                  type: 'candidate',
+                  label: event.candidate.sdpMLineIndex,
+                  id: event.candidate.sdpMid,
+                  candidate: event.candidate.candidate
+                });
+              } else {
+                console.log('End of candidates.');
+              }
+            };
+
+            if (isInitiator) {
+              console.log('Creating an offer');
+              peerConn.addStream(window.stream);
+
+              peerConn.createOffer(onLocalSessionCreated, logError, {
+                  OfferToReceiveAudio: true,
+                  OfferToReceiveVideo: true
+              });
+            }
+          }
+
+          function onLocalSessionCreated(desc) {
+            console.log('local session created:', desc);
+            peerConn.setLocalDescription(desc, function() {
+              console.log('sending local desc:', peerConn.localDescription);
+              sendMessage(peerConn.localDescription);
+            }, logError);
+          }
+
+          /**
+          * Send message to signaling server
+          */
+          function sendMessage(message) {
+            console.log('Client sending message: ', message);
+            socket.emit('message', message);
+          }
+
+          function logError(err) {
+            console.log(err.toString(), err);
+          }
+
+          function randomToken() {
+            return Math.floor((1 + Math.random()) * 1e16).toString(16).substring(1);
+          }
+        </script>
+    </body>
 </html>
