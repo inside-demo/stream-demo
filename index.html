@@ -2,7 +2,7 @@
 <html>
     <head>
       <meta charset="UTF-8">
-      <script src="https://socket.io-client/socket.io.js"></script>
+      <script src="/socket.io/socket.io.js"></script>
       <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
     </head>
     <body>
@@ -92,13 +92,13 @@
           }
 
           function gotStream(stream) {
-            console.log('getUserMedia video stream URL:', window.URL.createObjectURL(stream));
+            console.log('getUserMedia video stream URL:', stream);
             window.stream = stream; // stream available to console
             document.querySelector('#localVideo').srcObject = stream;
           }
 
           /****************************************************************************
-          * WebRTC peer connection and data channel
+          * WebRTC peer connection
           ****************************************************************************/
 
           var peerConn;
@@ -150,12 +150,26 @@
 
             if (isInitiator) {
               console.log('Creating an offer');
-              peerConn.addStream(window.stream);
+              stream.getTracks().forEach(
+                  function(track) {
+                    peerConn.addTrack(
+                      track,
+                      stream
+                    );
+              })
 
               peerConn.createOffer(onLocalSessionCreated, logError, {
-                  OfferToReceiveAudio: true,
+                  OfferToReceiveAudio: false,
                   OfferToReceiveVideo: true
               });
+            } else {
+              peerConn.ontrack = function (event) {
+                var video = document.createElement('video');
+                    video.srcObject = event.streams[0];
+
+                document.body.appendChild(video);
+                video.play();
+              }
             }
           }
 
